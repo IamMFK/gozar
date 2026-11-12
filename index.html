@@ -94,7 +94,15 @@
     <div class="ui-group"><div class="badge" id="env-info">نام محیط: هندسی | فصل: بهار | ساعت: ۰۸:۰۰</div><button id="sound-button" type="button" aria-label="قطع صدا" aria-pressed="false">🔊</button></div>
   </div>
 </div>
+<script>
+  const GAME_VERSION = '2'; 
+  const url = new URL(window.location.href);
 
+  if (url.searchParams.get('v') !== GAME_VERSION) {
+    url.searchParams.set('v', GAME_VERSION);
+    window.location.replace(url.toString());
+  }
+</script>
 <script>
 (() => {
   const canvas = document.getElementById('canvas');
@@ -229,6 +237,7 @@
   const player = {
     x: 120,
     y: GROUND_Y - 50,
+    prevY: GROUND_Y - 50,
     w: 48,
     h: 48,
     vy: 0,
@@ -237,14 +246,19 @@
     grounded: true,
     scaleX: 1,
     scaleY: 1,
+    prevScaleX: 1,
+    prevScaleY: 1,
     blinkTimer: 0,
     runTimer: 0,
     reset() {
       this.y = GROUND_Y - this.h;
+      this.prevY = this.y;
       this.vy = 0;
       this.grounded = true;
       this.scaleX = 1;
       this.scaleY = 1;
+      this.prevScaleX = this.scaleX;
+      this.prevScaleY = this.scaleY;
     },
     jump() {
       if (this.grounded) {
@@ -257,6 +271,9 @@
       }
     },
     update() {
+      this.prevY = this.y;
+      this.prevScaleX = this.scaleX;
+      this.prevScaleY = this.scaleY;
       this.runTimer += 0.2;
       this.blinkTimer = (this.blinkTimer + 1) % 180;
 
@@ -306,6 +323,7 @@
       const h = 35 + Math.random() * 20; // 35–55 px
       const obs = {
         x: nextX,
+        prevX: nextX,
         y: GROUND_Y - h,
         w,
         h,
@@ -474,11 +492,14 @@
   }
 
   // رسم کاراکتر همراه تغییر شکل متناسب با محیط و فشرده‌شدن
-  function drawPlayer(world) {
+  function drawPlayer(world, alpha = 1) {
+    const renderY = player.prevY + (player.y - player.prevY) * alpha;
+    const renderScaleX = player.prevScaleX + (player.scaleX - player.prevScaleX) * alpha;
+    const renderScaleY = player.prevScaleY + (player.scaleY - player.prevScaleY) * alpha;
     ctx.save();
     // جابجایی به مرکز قاعده کاراکتر برای اعمال اسکیل از پایین
-    ctx.translate(player.x + player.w / 2, player.y + player.h);
-    ctx.scale(player.scaleX, player.scaleY);
+    ctx.translate(player.x + player.w / 2, renderY + player.h);
+    ctx.scale(renderScaleX, renderScaleY);
 
     const bobbing = player.grounded ? Math.sin(player.runTimer) * 2.5 : 0;
 
@@ -562,7 +583,9 @@
   }
 
   // رسم موانع؛ یک تصویرسازی برداری ویژه برای هر جهان
-  function drawObstacle(obs) {
+  function drawObstacle(obs, alpha = 1) {
+    // Draw from a temporary render copy; keep simulation coordinates untouched.
+    obs = { ...obs, x: obs.prevX + (obs.x - obs.prevX) * alpha };
     // Keep the collision box and every artwork anchored to the ground.
     obs.y = GROUND_Y - obs.h;
     if (obs.world === 'geometric' || obs.world === 'blueprint') {
@@ -866,7 +889,7 @@
       spawnCooldown--;
       if (spawnCooldown <= 0) { spawnObstacle(); spawnCooldown = Math.floor(75 + Math.random()*60 - Math.min(30,score*.03)); }
       for (let i=obstacles.length-1;i>=0;i--) {
-        const obs=obstacles[i]; obs.x -= gameSpeed;
+        const obs=obstacles[i]; obs.prevX = obs.x; obs.x -= gameSpeed;
         if (checkCollision(player,obs) && !lifeLost) { gameOver(); break; }
         if (obs.x+obs.w < -50) obstacles.splice(i,1);
       }
@@ -878,6 +901,7 @@
     if (previousFrameTime === null) previousFrameTime = timestamp;
     const frameDelta = Math.min(250, timestamp - previousFrameTime); previousFrameTime = timestamp; accumulator += frameDelta;
     while (accumulator >= FIXED_DT) { updateSimulation(); accumulator -= FIXED_DT; }
+    const alpha = accumulator / FIXED_DT;
     const currentSeasonIdx = Math.floor(dayCount / 3) % 4;
     const currentWorldIdx = Math.floor(dayCount / 12) % worlds.length;
     const activeWorld = worlds[currentWorldIdx];
@@ -889,8 +913,8 @@
     livesEl.innerText = `${'❤️ '.repeat(lives)}${'♡ '.repeat(3-lives)}`.trim();
     drawBackground(activeWorld.id,currentSeasonIdx); handleWeather(currentSeasonIdx);
     if (hasStarted) {
-      drawPlayer(activeWorld.id); handleDust();
-      obstacles.forEach(drawObstacle);
+      drawPlayer(activeWorld.id, alpha); handleDust();
+      obstacles.forEach(obs => drawObstacle(obs, alpha));
     }
     if (hitFlashTimer>0) { ctx.fillStyle=`rgba(255,35,35,${.10*(hitFlashTimer/26)})`;ctx.fillRect(0,0,960,540); }
     if (!hasStarted) { ctx.fillStyle='rgba(0,0,0,.6)';ctx.fillRect(0,0,960,540);ctx.fillStyle='#fff';ctx.font='bold 28px sans-serif';ctx.textAlign='center';ctx.fillText('برای شروع پرش کنید (Space یا لمس صفحه)',480,270); }
